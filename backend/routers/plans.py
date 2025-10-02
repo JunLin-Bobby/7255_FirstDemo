@@ -26,7 +26,9 @@ async def get_plan_by_object_id(object_id: str, if_none_match: str = Header(None
     
     """Retrieve a plan by objectId with conditional read."""
     db = get_database()
+    print("before find_one")
     plan = await db.plans.find_one({"objectId": object_id})
+    print("after find_one")
     if not plan:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found")
 
@@ -36,7 +38,6 @@ async def get_plan_by_object_id(object_id: str, if_none_match: str = Header(None
 
     # Generate ETag based on the plan's content
     plan_etag = sha256(str(plan).encode()).hexdigest()
-
     # Check If-None-Match header
     if if_none_match == plan_etag:
         return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers={"Content-Length": "0"})
@@ -44,6 +45,7 @@ async def get_plan_by_object_id(object_id: str, if_none_match: str = Header(None
     # Return the plan with ETag header
     response = JSONResponse(content=plan, status_code=status.HTTP_200_OK)
     response.headers["ETag"] = plan_etag
+    
     return response
 
 @router.delete("/plans/{object_id}", status_code=status.HTTP_204_NO_CONTENT)
