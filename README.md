@@ -31,7 +31,7 @@ Before running the project, ensure you have the following installed:
 3. **Install Dependencies**
    ```bash
    pip install --upgrade pip
-   pip install -r requirements.txt
+   pip install fastapi uvicorn motor pydantic
    ```
 
 ---
