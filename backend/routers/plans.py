@@ -14,11 +14,31 @@ async def create_plan(plan: PlanSchema):
     db = get_database()
     payload = plan.dict()
     result = await db.plans.insert_one(payload)
-    return {
-        "message": "Plan created successfully",
-        "id": str(result.inserted_id),  # return _id generated from MongoDB 
-        "objectId": payload.get("objectId")  # return ObjectId
-    }
+    
+    # Retrieve the newly created data to generate the ETag
+    created_plan = await db.plans.find_one({"_id": result.inserted_id})
+    created_plan["_id"] = str(created_plan["_id"])  # Convert to string
+    
+    # Generate ETag
+    plan_etag = sha256(str(created_plan).encode()).hexdigest()
+    
+    # Store the ETag in the database
+    await db.plans.update_one(
+        {"_id": result.inserted_id},
+        {"$set": {"etag": plan_etag}}
+    )
+    
+    # Create the response and set the ETag header
+    response = JSONResponse(
+        content={
+            "message": "Plan created successfully",
+            "id": str(result.inserted_id),
+            "objectId": payload.get("objectId")
+        },
+        status_code=status.HTTP_201_CREATED
+    )
+    response.headers["ETag"] = plan_etag
+    return response
 
 
 @router.get("/plans/{object_id}", status_code=status.HTTP_200_OK)
@@ -26,9 +46,7 @@ async def get_plan_by_object_id(object_id: str, if_none_match: str = Header(None
     
     """Retrieve a plan by objectId with conditional read."""
     db = get_database()
-    print("before find_one")
     plan = await db.plans.find_one({"objectId": object_id})
-    print("after find_one")
     if not plan:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found")
 
@@ -36,15 +54,21 @@ async def get_plan_by_object_id(object_id: str, if_none_match: str = Header(None
     if "_id" in plan:
         plan["_id"] = str(plan["_id"])
 
-    # Generate ETag based on the plan's content
-    plan_etag = sha256(str(plan).encode()).hexdigest()
+    # Retrieve the stored ETag
+    stored_etag = plan.get("etag")
+    
     # Check If-None-Match header
-    if if_none_match == plan_etag:
+    if if_none_match and if_none_match == stored_etag:
         return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers={"Content-Length": "0"})
+
+    # Remove the etag field, do not return it to the client
+    if "etag" in plan:
+        del plan["etag"]
 
     # Return the plan with ETag header
     response = JSONResponse(content=plan, status_code=status.HTTP_200_OK)
-    response.headers["ETag"] = plan_etag
+    if stored_etag:
+        response.headers["ETag"] = stored_etag
     
     return response
 
